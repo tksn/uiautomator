@@ -3,17 +3,15 @@
 
 """Python wrapper for Android uiautomator tool."""
 
-import sys
+import collections
+import json
 import os
+import re
+import socket
 import subprocess
+import sys
 import time
 import uuid
-import itertools
-import json
-import hashlib
-import socket
-import re
-import collections
 import xml.dom.minidom
 import requests
 
@@ -361,7 +359,7 @@ class AutomatorServer(object):
 
     @property
     def jsonrpc(self):
-        return self.jsonrpc_wrap(timeout=int(os.environ.get("jsonrpc_timeout", 90)))
+        return self.jsonrpc_wrap(timeout=int(os.environ.get("JSONRPC_TIMEOUT", 90)))
 
     def jsonrpc_wrap(self, timeout):
         server = self
