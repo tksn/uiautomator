@@ -3,13 +3,13 @@
 
 import unittest
 from mock import MagicMock, patch, call
-from uiautomator import AutomatorServer, JsonRPCError
+from uiautomatorminus import AutomatorServer, JsonRPCError
 
 
 class TestAutomatorServer(unittest.TestCase):
 
     def setUp(self):
-        self.Adb_patch = patch('uiautomator.Adb')
+        self.Adb_patch = patch('uiautomatorminus.Adb')
         self.Adb = self.Adb_patch.start()
 
     def tearDown(self):
@@ -28,7 +28,7 @@ class TestAutomatorServer(unittest.TestCase):
         self.assertEqual(AutomatorServer("1234").local_port, 1000)
 
     def test_local_port_scanning(self):
-        with patch('uiautomator.next_local_port') as next_local_port:
+        with patch('uiautomatorminus.next_local_port') as next_local_port:
             self.Adb.return_value.forward_list.return_value = []
             next_local_port.return_value = 1234
             self.assertEqual(AutomatorServer("abcd", None).local_port,
@@ -45,17 +45,18 @@ class TestAutomatorServer(unittest.TestCase):
     def test_start_success(self):
         server = AutomatorServer()
         server.push = MagicMock()
-        server.push.return_value = ["bundle.jar", "uiautomator-stub.jar"]
+        server.push.return_value = ["bundle.jar", "uiautomatorminus-stub.jar"]
         server.ping = MagicMock()
         server.ping.return_value = "pong"
         server.adb = MagicMock()
         server.start()
-        server.adb.cmd.assert_valled_onec_with('shell', 'uiautomator', 'runtest', 'bundle.jar', 'uiautomator-stub.jar', '-c', 'com.github.uiautomatorstub.Stub')
+        print(server.adb.cmd.call_args_list)
+        server.adb.cmd.assert_called_with('shell', 'uiautomator', 'runtest', 'bundle.jar', 'uiautomatorminus-stub.jar', '-c', 'com.github.uiautomatorstub.Stub')
 
     def test_start_error(self):
         server = AutomatorServer()
         server.push = MagicMock()
-        server.push.return_value = ["bundle.jar", "uiautomator-stub.jar"]
+        server.push.return_value = ["bundle.jar", "uiautomatorminus-stub.jar"]
         server.ping = MagicMock()
         server.ping.return_value = None
         server.adb = MagicMock()
@@ -68,7 +69,7 @@ class TestAutomatorServer(unittest.TestCase):
             import urllib2
         except ImportError:
             import urllib.request as urllib2
-        with patch("uiautomator.JsonRPCMethod") as JsonRPCMethod:
+        with patch("uiautomatorminus.JsonRPCMethod") as JsonRPCMethod:
             returns = [urllib2.URLError("error"), "ok"]
             def side_effect():
                 result = returns.pop(0)
@@ -81,7 +82,7 @@ class TestAutomatorServer(unittest.TestCase):
             server.stop = MagicMock()
             self.assertEqual("ok", server.jsonrpc.any_method())
             server.start.assert_called_once_with(timeout=30)
-        with patch("uiautomator.JsonRPCMethod") as JsonRPCMethod:
+        with patch("uiautomatorminus.JsonRPCMethod") as JsonRPCMethod:
             returns = [JsonRPCError(-32000-1, "error msg"), "ok"]
             def side_effect():
                 result = returns.pop(0)
@@ -94,7 +95,7 @@ class TestAutomatorServer(unittest.TestCase):
             server.stop = MagicMock()
             self.assertEqual("ok", server.jsonrpc.any_method())
             server.start.assert_called_once_with()
-        with patch("uiautomator.JsonRPCMethod") as JsonRPCMethod:
+        with patch("uiautomatorminus.JsonRPCMethod") as JsonRPCMethod:
             JsonRPCMethod.return_value.side_effect = JsonRPCError(-32000-2, "error msg")
             server = AutomatorServer()
             server.start = MagicMock()
@@ -103,7 +104,7 @@ class TestAutomatorServer(unittest.TestCase):
                 server.jsonrpc.any_method()
 
     def test_start_ping(self):
-        with patch("uiautomator.JsonRPCClient") as JsonRPCClient:
+        with patch("uiautomatorminus.JsonRPCClient") as JsonRPCClient:
             JsonRPCClient.return_value.ping.return_value = "pong"
             server = AutomatorServer()
             server.adb = MagicMock()
@@ -111,7 +112,7 @@ class TestAutomatorServer(unittest.TestCase):
             self.assertEqual(server.ping(), "pong")
 
     def test_start_ping_none(self):
-        with patch("uiautomator.JsonRPCClient") as JsonRPCClient:
+        with patch("uiautomatorminus.JsonRPCClient") as JsonRPCClient:
             JsonRPCClient.return_value.ping.side_effect = Exception("error")
             server = AutomatorServer()
             self.assertEqual(server.ping(), None)
@@ -168,10 +169,10 @@ class TestAutomatorServer_Stop(unittest.TestCase):
 
     def test_stop(self):
         results = [
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\n\rsystem    372   126   635596 104808 ffffffff 00000000 S uiautomator",
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\r\nsystem    372   126   635596 104808 ffffffff 00000000 S uiautomator",
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\nsystem    372   126   635596 104808 ffffffff 00000000 S uiautomator",
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\rsystem    372   126   635596 104808 ffffffff 00000000 S uiautomator"
+            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\n\rsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus",
+            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\r\nsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus",
+            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\nsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus",
+            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\rsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus"
         ]
         for r in results:
             server = AutomatorServer()

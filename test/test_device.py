@@ -6,7 +6,7 @@ import re
 import os.path
 import codecs
 from mock import MagicMock, call, patch
-from uiautomator import AutomatorDevice, Selector
+from uiautomatorminus import AutomatorDevice, Selector
 
 
 class TestDevice(unittest.TestCase):
@@ -269,12 +269,12 @@ class TestDevice(unittest.TestCase):
             self.device.not_exists
 
     def test_device_obj(self):
-        with patch("uiautomator.AutomatorDeviceObject") as AutomatorDeviceObject:
+        with patch("uiautomatorminus.AutomatorDeviceObject") as AutomatorDeviceObject:
             kwargs = {"text": "abc", "description": "description...", "clickable": True}
             self.device(**kwargs)
             AutomatorDeviceObject.assert_called_once_with(self.device, Selector(**kwargs))
 
-        with patch("uiautomator.AutomatorDeviceObject") as AutomatorDeviceObject:
+        with patch("uiautomatorminus.AutomatorDeviceObject") as AutomatorDeviceObject:
             AutomatorDeviceObject.return_value.exists = True
             self.assertTrue(self.device.exists(clickable=True))
             AutomatorDeviceObject.return_value.exists = False
@@ -284,6 +284,6 @@ class TestDevice(unittest.TestCase):
 class TestDeviceWithSerial(unittest.TestCase):
 
     def test_serial(self):
-        with patch('uiautomator.AutomatorServer') as AutomatorServer:
+        with patch('uiautomatorminus.AutomatorServer') as AutomatorServer:
             AutomatorDevice("abcdefhijklmn")
             AutomatorServer.assert_called_once_with(serial="abcdefhijklmn", local_port=None, adb_server_host=None, adb_server_port=None)

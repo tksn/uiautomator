@@ -3,7 +3,7 @@
 
 import unittest
 from mock import MagicMock, patch
-from uiautomator import JsonRPCMethod, JsonRPCClient
+from uiautomatorminus import JsonRPCMethod, JsonRPCClient
 import os
 
 
@@ -20,6 +20,8 @@ class TestJsonRPCMethod_id(unittest.TestCase):
 class TestJsonRPCMethod_call(unittest.TestCase):
 
     def setUp(self):
+        self.os_name = os.name
+        os.name = "darwin"
         self.url = "http://localhost/jsonrpc"
         self.timeout = 20
         self.method_name = "ping"
@@ -36,6 +38,7 @@ class TestJsonRPCMethod_call(unittest.TestCase):
             self.urlopen = self.urlopen_patch.start()
 
     def tearDown(self):
+        os.name = self.os_name
         self.urlopen_patch.stop()
 
     def test_normal_call(self):
@@ -77,7 +80,7 @@ class TestJsonRPCClient(unittest.TestCase):
         self.timeout = 20
 
     def test_jsonrpc(self):
-        with patch('uiautomator.JsonRPCMethod') as JsonRPCMethod:
+        with patch('uiautomatorminus.JsonRPCMethod') as JsonRPCMethod:
             client = JsonRPCClient(self.url, self.timeout, JsonRPCMethod)
             JsonRPCMethod.return_value = "Ok"
             self.assertEqual(client.ping, "Ok")

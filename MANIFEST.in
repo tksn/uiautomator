@@ -1,5 +1,4 @@
-include uiautomator/*.py
+include uiautomatorminus/*.py
 include setup.py
-include uiautomator/libs/*.jar
-include uiautomator/libs/*.apk
+include uiautomatorminus/libs/*.apk
 include test/*.py

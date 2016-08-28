@@ -3,7 +3,7 @@
 
 import unittest
 from mock import MagicMock, call
-from uiautomator import AutomatorDeviceObject, Selector, AutomatorDeviceNamedUiObject
+from uiautomatorminus import AutomatorDeviceObject, Selector, AutomatorDeviceNamedUiObject
 
 
 class TestDeviceObjInit(unittest.TestCase):

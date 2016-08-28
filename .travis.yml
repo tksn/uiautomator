@@ -1,10 +1,7 @@
 language: python
 python:
   - "2.7"
-  - "3.2"
-  - "3.3"
-  - "3.4"
-  - "pypy"
+  - "3.5"
 # command to install dependencies
 install:
   - "pip install coveralls --use-mirrors"
@@ -13,7 +10,7 @@ install:
 # command to run tests
 script:
 #  - "python setup.py nosetests --cover-package=uiautomator --with-coverage --cover-erase"
-  - "coverage run --source=uiautomator setup.py nosetests"
+  - "coverage run --source=uiautomatorminus setup.py nosetests"
   - "python setup.py sdist"
 # after success
 after_success:

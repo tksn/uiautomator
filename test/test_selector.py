@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import unittest
-from uiautomator import Selector
+from uiautomatorminus import Selector
 
 
 class TestSelector(unittest.TestCase):

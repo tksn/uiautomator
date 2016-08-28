@@ -2,10 +2,11 @@
 bin
 build
 dist
-uiautomator.egg-info
+uiautomatorminus.egg-info
 .classpath
 .project
 *.pyc
 *.egg
+.eggs
 .tox
 .coverage

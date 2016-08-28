@@ -7,6 +7,7 @@ import sys
 import os
 import subprocess
 import time
+import uuid
 import itertools
 import json
 import hashlib
@@ -134,9 +135,10 @@ class JsonRPCMethod(object):
         return jsonresult["result"]
 
     def id(self):
-        m = hashlib.md5()
-        m.update(("%s at %f" % (self.method, time.time())).encode("utf-8"))
-        return m.hexdigest()
+        # m = hashlib.md5()
+        # m.update(("%s at %f" % (self.method, time.time())).encode("utf-8"))
+        # return m.hexdigest()
+        return str(uuid.uuid4())
 
 
 class JsonRPCClient(object):

@@ -5,7 +5,7 @@ import unittest
 from mock import MagicMock, patch
 import os
 import subprocess
-from uiautomator import Adb
+from uiautomatorminus import Adb
 
 
 class TestAdb(unittest.TestCase):
