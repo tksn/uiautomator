@@ -15,6 +15,8 @@ import socket
 import re
 import collections
 import xml.dom.minidom
+import requests
+
 
 DEVICE_PORT = int(os.environ.get('UIAUTOMATOR_DEVICE_PORT', '9008'))
 LOCAL_PORT = int(os.environ.get('UIAUTOMATOR_LOCAL_PORT', '9008'))
@@ -22,21 +24,7 @@ LOCAL_PORT = int(os.environ.get('UIAUTOMATOR_LOCAL_PORT', '9008'))
 if 'localhost' not in os.environ.get('no_proxy', ''):
     os.environ['no_proxy'] = "localhost,%s" % os.environ.get('no_proxy', '')
 
-try:
-    import urllib2
-except ImportError:
-    import urllib.request as urllib2
-try:
-    from httplib import HTTPException
-except:
-    from http.client import HTTPException
-try:
-    if os.name == 'nt':
-        import urllib3
-except:  # to fix python setup error on Windows.
-    pass
-
-__author__ = "Xiaocong He"
+__author__ = "Takeshi Naoi"
 __all__ = ["device", "Device", "rect", "point", "Selector", "JsonRPCError"]
 
 
@@ -91,12 +79,6 @@ class JsonRPCError(Exception):
 
 class JsonRPCMethod(object):
 
-    if os.name == 'nt':
-        try:
-            pool = urllib3.PoolManager()
-        except:
-            pass
-
     def __init__(self, url, method, timeout=30):
         self.url, self.method, self.timeout = url, method, timeout
 
@@ -108,25 +90,7 @@ class JsonRPCMethod(object):
             data["params"] = args
         elif kwargs:
             data["params"] = kwargs
-        jsonresult = {"result": ""}
-        if os.name == "nt":
-            res = self.pool.urlopen("POST",
-                                    self.url,
-                                    headers={"Content-Type": "application/json"},
-                                    body=json.dumps(data).encode("utf-8"),
-                                    timeout=self.timeout)
-            jsonresult = json.loads(res.data.decode("utf-8"))
-        else:
-            result = None
-            try:
-                req = urllib2.Request(self.url,
-                                      json.dumps(data).encode("utf-8"),
-                                      {"Content-type": "application/json"})
-                result = urllib2.urlopen(req, timeout=self.timeout)
-                jsonresult = json.loads(result.read().decode("utf-8"))
-            finally:
-                if result is not None:
-                    result.close()
+        jsonresult = requests.post(self.url, json=data).json()
         if "error" in jsonresult and jsonresult["error"]:
             raise JsonRPCError(
                 jsonresult["error"]["code"],
@@ -135,9 +99,6 @@ class JsonRPCMethod(object):
         return jsonresult["result"]
 
     def id(self):
-        # m = hashlib.md5()
-        # m.update(("%s at %f" % (self.method, time.time())).encode("utf-8"))
-        # return m.hexdigest()
         return str(uuid.uuid4())
 
 
@@ -371,7 +332,7 @@ class AutomatorServer(object):
         "uiautomator-stub.jar": "libs/uiautomator-stub.jar"
     }
 
-    __apk_files = ["libs/app-uiautomator.apk", "libs/app-uiautomator-test.apk"]
+    __apk_files = ["libs/uiautomatorminus.apk", "libs/uiautomatorminus_test.apk"]
 
     __sdk = 0
 
@@ -418,10 +379,9 @@ class AutomatorServer(object):
             _method_obj = JsonRPCMethod(url, method, timeout)
 
             def wrapper(*args, **kwargs):
-                URLError = urllib3.exceptions.HTTPError if os.name == "nt" else urllib2.URLError
                 try:
                     return _method_obj(*args, **kwargs)
-                except (URLError, socket.error, HTTPException) as e:
+                except requests.exceptions.RequestException as e:
                     if restart:
                         server.stop()
                         server.start(timeout=30)
@@ -496,15 +456,13 @@ class AutomatorServer(object):
     def stop(self):
         '''Stop the rpc server.'''
         if self.uiautomator_process and self.uiautomator_process.poll() is None:
-            res = None
             try:
-                res = urllib2.urlopen(self.stop_uri)
+                self.__jsonrpc().stopServer()
                 self.uiautomator_process.wait()
-            except:
+            except Exception as e:
+                print(str(e))
                 self.uiautomator_process.kill()
             finally:
-                if res is not None:
-                    res.close()
                 self.uiautomator_process = None
         try:
             out = self.adb.cmd("shell", "ps", "-C", "uiautomator").communicate()[0].decode("utf-8").strip().splitlines()
@@ -528,17 +486,12 @@ class AutomatorServer(object):
     def screenshot_uri(self):
         return "http://%s:%d/screenshot/0" % (self.adb.adb_server_host, self.local_port)
 
-    def screenshot(self, filename=None, scale=1.0, quality=100):
+    def screenshot(self, scale=1.0, quality=100):
         if self.sdk_version() >= 18:
             try:
-                req = urllib2.Request("%s?scale=%f&quality=%f" % (self.screenshot_uri, scale, quality))
-                result = urllib2.urlopen(req, timeout=30)
-                if filename:
-                    with open(filename, 'wb') as f:
-                        f.write(result.read())
-                        return filename
-                else:
-                    return result.read()
+                result = requests.get(
+                    '{}?scale={}&quality={}'.format(self.screenshot_uri, scale, quality))
+                return result.content
             except:
                 pass
         return None

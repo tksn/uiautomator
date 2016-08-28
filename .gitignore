@@ -10,3 +10,4 @@ uiautomatorminus.egg-info
 .eggs
 .tox
 .coverage
+.idea

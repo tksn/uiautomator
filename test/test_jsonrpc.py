@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import json
 import unittest
 from mock import MagicMock, patch
 from uiautomatorminus import JsonRPCMethod, JsonRPCClient
 import os
+import requests
 
 
 class TestJsonRPCMethod_id(unittest.TestCase):
@@ -15,6 +17,13 @@ class TestJsonRPCMethod_id(unittest.TestCase):
         self.assertTrue(len(method.id()) > 0)
         for i in range(100):
             self.assertNotEqual(method.id(), method.id())
+
+
+class PostResponse(object):
+    def __init__(self, text):
+        self.text = text
+    def json(self):
+        return json.loads(self.text)
 
 
 class TestJsonRPCMethod_call(unittest.TestCase):
@@ -29,46 +38,36 @@ class TestJsonRPCMethod_call(unittest.TestCase):
         self.method = JsonRPCMethod(self.url, self.method_name, self.timeout)
         self.method.id = MagicMock()
         self.method.id.return_value = self.id
-        try:
-            import urllib2
-            self.urlopen_patch = patch('urllib2.urlopen')
-        except:
-            self.urlopen_patch = patch('urllib.request.urlopen')
-        finally:
-            self.urlopen = self.urlopen_patch.start()
 
     def tearDown(self):
         os.name = self.os_name
-        self.urlopen_patch.stop()
 
-    def test_normal_call(self):
-        return_mock = self.urlopen.return_value
-        return_mock.getcode.return_value = 200
-
-        return_mock.read.return_value = b'{"result": "pong", "error": null, "id": "DKNCJDLDJJ"}'
+    @patch('requests.post')
+    def test_normal_call(self, mock_post):
+        mock_post.return_value = PostResponse(
+            '{"result": "pong", "error": null, "id": "DKNCJDLDJJ"}')
         self.assertEqual("pong", self.method())
         self.method.id.assert_called_once_with()
 
-        return_mock.read.return_value = b'{"result": "pong", "id": "JDLSFJLILJEMNC"}'
+        mock_post.return_value = PostResponse(
+            '{"result": "pong", "id": "JDLSFJLILJEMNC"}')
         self.assertEqual("pong", self.method())
         self.assertEqual("pong", self.method(1, 2, "str", {"a": 1}, ["1"]))
         self.assertEqual("pong", self.method(a=1, b=2))
 
-    def test_normal_call_error(self):
-        return_mock = self.urlopen.return_value
-
-        return_mock.getcode.return_value = 500
+    @patch('requests.post')
+    def test_normal_call_error(self, mock_post):
+        mock_post.side_effect = requests.exceptions.ConnectionError('error')
         with self.assertRaises(Exception):
             self.method()
 
-        return_mock.getcode.return_value = 200
-        return_mock.read.return_value = b'{"result": "pong", "error": {"code": -513937, "message": "error message."}, "id": "fGasV62G"}'
+        mock_post.return_value = PostResponse(
+            '{"result": "pong", "error": {"code": -513937, "message": "error message."}, '
+            '"id": "fGasV62G"}')
         with self.assertRaises(Exception):
             self.method()
-        return_mock.read.assert_called_with()
 
-        return_mock.getcode.return_value = 200
-        return_mock.read.return_value = b'{"result": null, "error": null, "id": "fGasV62G"}'
+        mock_post.return_value = PostResponse('{"result": null, "error": null, "id": "fGasV62G"}')
         with self.assertRaises(SyntaxError):
             self.method(1, 2, kwarg1="")
 
@@ -89,41 +88,3 @@ class TestJsonRPCClient(unittest.TestCase):
             JsonRPCMethod.return_value = {"width": 10, "height": 20}
             self.assertEqual(client.info, {"width": 10, "height": 20})
             JsonRPCMethod.assert_called_with(self.url, "info", timeout=self.timeout)
-
-
-class TestJsonRPCMethod_call_on_windows(unittest.TestCase):
-
-    def setUp(self):
-        self.os_name = os.name
-        os.name = "nt"
-        self.url = "http://localhost/jsonrpc"
-        self.timeout = 20
-        self.method_name = "ping"
-        self.id = "fGasV62G"
-        self.method = JsonRPCMethod(self.url, self.method_name, self.timeout)
-        self.method.pool = MagicMock()
-        self.method.id = MagicMock()
-        self.method.id.return_value = self.id
-
-    def tearDown(self):
-        os.name = self.os_name
-
-    def test_normal_call(self):
-        urlopen = self.method.pool.urlopen
-        urlopen.return_value.status = 200
-
-        urlopen.return_value.data = b'{"result": "pong", "error": null, "id": "DKNCJDLDJJ"}'
-        self.assertEqual("pong", self.method())
-        self.method.id.assert_called_once_with()
-
-        urlopen.return_value.data = b'{"result": "pong", "id": "JDLSFJLILJEMNC"}'
-        self.assertEqual("pong", self.method())
-        self.assertEqual("pong", self.method(1, 2, "str", {"a": 1}, ["1"]))
-        self.assertEqual("pong", self.method(a=1, b=2))
-
-    def test_normal_call_error(self):
-        urlopen = self.method.pool.urlopen
-        urlopen.return_value.status = 500
-
-        with self.assertRaises(Exception):
-            self.method()

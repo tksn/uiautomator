@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import json
 import unittest
 from mock import MagicMock, patch, call
 from uiautomatorminus import AutomatorServer, JsonRPCError
+import requests
 
 
 class TestAutomatorServer(unittest.TestCase):
@@ -65,12 +67,8 @@ class TestAutomatorServer(unittest.TestCase):
                 server.start()
 
     def test_auto_start(self):
-        try:
-            import urllib2
-        except ImportError:
-            import urllib.request as urllib2
         with patch("uiautomatorminus.JsonRPCMethod") as JsonRPCMethod:
-            returns = [urllib2.URLError("error"), "ok"]
+            returns = [requests.exceptions.ConnectionError("error"), "ok"]
             def side_effect():
                 result = returns.pop(0)
                 if isinstance(result, Exception):
@@ -132,17 +130,18 @@ class TestAutomatorServer_Stop(unittest.TestCase):
     def tearDown(self):
         self.urlopen_patch.stop()
 
-    def test_screenshot(self):
+    @patch('requests.get')
+    def test_screenshot(self, mock_get):
         server = AutomatorServer()
         server.sdk_version = MagicMock()
         server.sdk_version.return_value = 17
         self.assertEqual(server.screenshot(), None)
 
         server.sdk_version.return_value = 18
-        self.urlopen.return_value.read = MagicMock()
-        self.urlopen.return_value.read.return_value = b"123456"
+        class GetResponse(object):
+            content = b'123456'
+        mock_get.return_value = GetResponse()
         self.assertEqual(server.screenshot(), b"123456")
-        self.assertEqual(server.screenshot("/tmp/test.txt"), "/tmp/test.txt")
 
     def test_push(self):
         jars = ["bundle.jar", "uiautomator-stub.jar"]
@@ -153,7 +152,14 @@ class TestAutomatorServer_Stop(unittest.TestCase):
             self.assertEqual(args[0][0], "push")
             self.assertEqual(args[0][2], "/data/local/tmp/")
 
-    def test_stop_started_server(self):
+    @patch('requests.post')
+    def test_stop_started_server(self, mock_post):
+        class PostResponse(object):
+            def __init__(self, text):
+                self.text = text
+            def json(self):
+                return json.loads(self.text)
+        mock_post.return_value = PostResponse('{"result": null}')
         server = AutomatorServer()
         server.adb = MagicMock()
         server.uiautomator_process = process = MagicMock()
@@ -162,8 +168,8 @@ class TestAutomatorServer_Stop(unittest.TestCase):
         process.wait.assert_called_once_with()
 
         server.uiautomator_process = process = MagicMock()
-        process.poll.return_value = None
-        self.urlopen.side_effect = IOError("error")
+        process.poll.return_value = None        
+        mock_post.side_effect = requests.exceptions.ConnectionError("error")
         server.stop()
         process.kill.assert_called_once_with()
 
