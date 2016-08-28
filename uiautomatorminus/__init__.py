@@ -17,7 +17,11 @@ import collections
 import xml.dom.minidom
 import requests
 
-
+TESTPACKAGE = 'org.bitbucket.tksn.androidtestsupportapp.test'
+TESTRUNNER = 'android.support.test.runner.AndroidJUnitRunner'
+INSTRUMENT_EXTRA_OPTS = [
+    '-e', 'class', 'org.bitbucket.tksn.androidtestsupportapp/TestSupportMain'
+]
 DEVICE_PORT = int(os.environ.get('UIAUTOMATOR_DEVICE_PORT', '9008'))
 LOCAL_PORT = int(os.environ.get('UIAUTOMATOR_LOCAL_PORT', '9008'))
 
@@ -327,11 +331,6 @@ class AutomatorServer(object):
 
     """start and quit rpc server on device.
     """
-    __jar_files = {
-        "bundle.jar": "libs/bundle.jar",
-        "uiautomator-stub.jar": "libs/uiautomator-stub.jar"
-    }
-
     __apk_files = ["libs/uiautomatorminus.apk", "libs/uiautomatorminus_test.apk"]
 
     __sdk = 0
@@ -354,13 +353,6 @@ class AutomatorServer(object):
                     self.local_port = next_local_port(adb_server_host)
             except:
                 self.local_port = next_local_port(adb_server_host)
-
-    def push(self):
-        base_dir = os.path.dirname(__file__)
-        for jar, url in self.__jar_files.items():
-            filename = os.path.join(base_dir, url)
-            self.adb.cmd("push", filename, "/data/local/tmp/").wait()
-        return list(self.__jar_files.keys())
 
     def install(self):
         base_dir = os.path.dirname(__file__)
@@ -421,17 +413,12 @@ class AutomatorServer(object):
         return self.__sdk
 
     def start(self, timeout=5):
-        if self.sdk_version() < 18:
-            files = self.push()
-            cmd = list(itertools.chain(
-                ["shell", "uiautomator", "runtest"],
-                files,
-                ["-c", "com.github.uiautomatorstub.Stub"]
-            ))
-        else:
-            self.install()
-            cmd = ["shell", "am", "instrument", "-w",
-                   "com.github.uiautomator.test/android.support.test.runner.AndroidJUnitRunner"]
+        self.install()
+        cmd = ['shell', 'am', 'instrument']
+        instrument_opts = ['-r', '-w', '-e', 'port', str(DEVICE_PORT)]
+        instrument_opts.extend(INSTRUMENT_EXTRA_OPTS)
+        cmd.extend(instrument_opts)
+        cmd.append('/'.join((TESTPACKAGE, TESTRUNNER)))
 
         self.uiautomator_process = self.adb.cmd(*cmd)
         self.adb.forward(self.local_port, self.device_port)
@@ -487,14 +474,9 @@ class AutomatorServer(object):
         return "http://%s:%d/screenshot/0" % (self.adb.adb_server_host, self.local_port)
 
     def screenshot(self, scale=1.0, quality=100):
-        if self.sdk_version() >= 18:
-            try:
-                result = requests.get(
-                    '{}?scale={}&quality={}'.format(self.screenshot_uri, scale, quality))
-                return result.content
-            except:
-                pass
-        return None
+        result = requests.get(
+            '{}?scale={}&quality={}'.format(self.screenshot_uri, scale, quality))
+        return result.content
 
 
 class AutomatorDevice(object):

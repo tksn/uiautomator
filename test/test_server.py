@@ -15,7 +15,7 @@ class TestAutomatorServer(unittest.TestCase):
         self.Adb = self.Adb_patch.start()
 
     def tearDown(self):
-        self.Adb.stop()
+        self.Adb_patch.stop()
 
     def test_local_port(self):
         self.assertEqual(AutomatorServer("1234", 9010).local_port, 9010)
@@ -46,19 +46,27 @@ class TestAutomatorServer(unittest.TestCase):
 
     def test_start_success(self):
         server = AutomatorServer()
-        server.push = MagicMock()
-        server.push.return_value = ["bundle.jar", "uiautomatorminus-stub.jar"]
         server.ping = MagicMock()
         server.ping.return_value = "pong"
         server.adb = MagicMock()
         server.start()
-        print(server.adb.cmd.call_args_list)
-        server.adb.cmd.assert_called_with('shell', 'uiautomator', 'runtest', 'bundle.jar', 'uiautomatorminus-stub.jar', '-c', 'com.github.uiautomatorstub.Stub')
+
+        def find_call_with_args(*target_args):
+            for call_args in server.adb.cmd.call_args_list:
+                args, kwargs = call_args
+                found = True
+                for target_arg in target_args:
+                    if target_arg not in args:
+                        found = False
+                        break
+                if found:
+                    return call_args
+            return None
+
+        self.assertIsNotNone(find_call_with_args('shell', 'am', 'instrument'))
 
     def test_start_error(self):
         server = AutomatorServer()
-        server.push = MagicMock()
-        server.push.return_value = ["bundle.jar", "uiautomatorminus-stub.jar"]
         server.ping = MagicMock()
         server.ping.return_value = None
         server.adb = MagicMock()
@@ -134,23 +142,11 @@ class TestAutomatorServer_Stop(unittest.TestCase):
     def test_screenshot(self, mock_get):
         server = AutomatorServer()
         server.sdk_version = MagicMock()
-        server.sdk_version.return_value = 17
-        self.assertEqual(server.screenshot(), None)
-
         server.sdk_version.return_value = 18
         class GetResponse(object):
             content = b'123456'
         mock_get.return_value = GetResponse()
         self.assertEqual(server.screenshot(), b"123456")
-
-    def test_push(self):
-        jars = ["bundle.jar", "uiautomator-stub.jar"]
-        server = AutomatorServer()
-        server.adb = MagicMock()
-        self.assertEqual(set(server.push()), set(jars))
-        for args in server.adb.cmd.call_args_list:
-            self.assertEqual(args[0][0], "push")
-            self.assertEqual(args[0][2], "/data/local/tmp/")
 
     @patch('requests.post')
     def test_stop_started_server(self, mock_post):
