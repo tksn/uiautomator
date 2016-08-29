@@ -70,6 +70,8 @@ class TestAutomatorServer(unittest.TestCase):
         server.ping = MagicMock()
         server.ping.return_value = None
         server.adb = MagicMock()
+        server.adb.cmd.return_value = cmd_ret = MagicMock()
+        cmd_ret.communicate.return_value = ('', '')
         with patch("time.sleep"):
             with self.assertRaises(IOError):
                 server.start()

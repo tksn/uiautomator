@@ -7,7 +7,7 @@ except ImportError:
 
 
 requires = [
-    "urllib3>=1.7.1"
+    'requests>=2.11.1'
 ]
 test_requires = [
     'nose>=1.0',

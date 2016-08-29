@@ -5,6 +5,7 @@
 
 import collections
 import json
+import logging
 import os
 import re
 import socket
@@ -18,7 +19,7 @@ import requests
 TESTPACKAGE = 'org.bitbucket.tksn.androidtestsupportapp.test'
 TESTRUNNER = 'android.support.test.runner.AndroidJUnitRunner'
 INSTRUMENT_EXTRA_OPTS = [
-    '-e', 'class', 'org.bitbucket.tksn.androidtestsupportapp/TestSupportMain'
+    '-e', 'class', 'org.bitbucket.tksn.androidtestsupportapp.TestSupportMain'
 ]
 DEVICE_PORT = int(os.environ.get('UIAUTOMATOR_DEVICE_PORT', '9008'))
 LOCAL_PORT = int(os.environ.get('UIAUTOMATOR_LOCAL_PORT', '9008'))
@@ -26,7 +27,6 @@ LOCAL_PORT = int(os.environ.get('UIAUTOMATOR_LOCAL_PORT', '9008'))
 if 'localhost' not in os.environ.get('no_proxy', ''):
     os.environ['no_proxy'] = "localhost,%s" % os.environ.get('no_proxy', '')
 
-__author__ = "Takeshi Naoi"
 __all__ = ["device", "Device", "rect", "point", "Selector", "JsonRPCError"]
 
 
@@ -92,7 +92,11 @@ class JsonRPCMethod(object):
             data["params"] = args
         elif kwargs:
             data["params"] = kwargs
+
+        logging.debug('POST:{}'.format(json.dumps(data)))
         jsonresult = requests.post(self.url, json=data).json()
+        logging.debug('  -> {}'.format(json.dumps(jsonresult)))
+
         if "error" in jsonresult and jsonresult["error"]:
             raise JsonRPCError(
                 jsonresult["error"]["code"],
@@ -254,13 +258,14 @@ class Adb(object):
         cmd_line = [self.adb()] + self.adbHostPortOptions + list(args)
         if os.name != "nt":
             cmd_line = [" ".join(cmd_line)]
+        logging.debug('POPEN:{}'.format(cmd_line))
         return subprocess.Popen(cmd_line, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def device_serial(self):
         if not self.default_serial:
             devices = self.devices()
             if devices:
-                if len(devices) is 1:
+                if len(devices) == 1:
                     self.default_serial = list(devices.keys())[0]
                 else:
                     raise EnvironmentError("Multiple devices attached but default android serial not set.")
@@ -359,6 +364,7 @@ class AutomatorServer(object):
 
     @property
     def jsonrpc(self):
+        logging.debug('jsonrpc() called')
         return self.jsonrpc_wrap(timeout=int(os.environ.get("JSONRPC_TIMEOUT", 90)))
 
     def jsonrpc_wrap(self, timeout):
@@ -372,6 +378,7 @@ class AutomatorServer(object):
                 try:
                     return _method_obj(*args, **kwargs)
                 except requests.exceptions.RequestException as e:
+                    logging.debug('RequestException during JSONRPC call: {},{}'.format(e, restart))
                     if restart:
                         server.stop()
                         server.start(timeout=30)
@@ -379,6 +386,7 @@ class AutomatorServer(object):
                     else:
                         raise
                 except JsonRPCError as e:
+                    logging.debug('JsonRPCError during JSONRPC call: {}'.format(e))
                     if e.code >= ERROR_CODE_BASE - 1:
                         server.stop()
                         server.start()
@@ -399,6 +407,7 @@ class AutomatorServer(object):
                              method_class=_JsonRPCMethod)
 
     def __jsonrpc(self):
+        logging.debug('__jsonrpc() called')
         return JsonRPCClient(self.rpc_uri, timeout=int(os.environ.get("JSONRPC_TIMEOUT", 90)))
 
     def sdk_version(self):
@@ -421,10 +430,12 @@ class AutomatorServer(object):
         self.uiautomator_process = self.adb.cmd(*cmd)
         self.adb.forward(self.local_port, self.device_port)
 
-        while not self.alive and timeout > 0:
+        due = time.time() + timeout
+        while not self.alive and time.time() < due:
             time.sleep(0.1)
-            timeout -= 0.1
         if not self.alive:
+            out, err = self.uiautomator_process.communicate()
+            logging.debug('Instrument stdout/stderr=[{}/{}]'.format(out, err))
             raise IOError("RPC server not started!")
 
     def ping(self):
@@ -460,16 +471,12 @@ class AutomatorServer(object):
             pass
 
     @property
-    def stop_uri(self):
-        return "http://%s:%d/stop" % (self.adb.adb_server_host, self.local_port)
-
-    @property
     def rpc_uri(self):
-        return "http://%s:%d/jsonrpc/0" % (self.adb.adb_server_host, self.local_port)
+        return "http://%s:%d/jsonrpc/" % (self.adb.adb_server_host, self.local_port)
 
     @property
     def screenshot_uri(self):
-        return "http://%s:%d/screenshot/0" % (self.adb.adb_server_host, self.local_port)
+        return "http://%s:%d/screenshot.png" % (self.adb.adb_server_host, self.local_port)
 
     def screenshot(self, scale=1.0, quality=100):
         result = requests.get(
@@ -1200,5 +1207,3 @@ class AutomatorDeviceObject(AutomatorDeviceUiObject):
             elif action == "to":
                 return __scroll_to(vertical, **kwargs)
         return _scroll
-
-device = AutomatorDevice()
