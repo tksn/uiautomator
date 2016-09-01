@@ -4,19 +4,9 @@
 import json
 import unittest
 from mock import MagicMock, patch
-from uiautomatorminus import JsonRPCMethod, JsonRPCClient
+from uiautomatorminus import jsonrpc_call, JsonRPCClient
 import os
 import requests
-
-
-class TestJsonRPCMethod_id(unittest.TestCase):
-
-    def test_id(self):
-        method = JsonRPCMethod("", "method", 30)
-        self.assertTrue(isinstance(method.id(), str))
-        self.assertTrue(len(method.id()) > 0)
-        for i in range(100):
-            self.assertNotEqual(method.id(), method.id())
 
 
 class PostResponse(object):
@@ -26,65 +16,66 @@ class PostResponse(object):
         return json.loads(self.text)
 
 
+class TestJsonRPCMethod_id(unittest.TestCase):
+
+    @patch('requests.post', return_value=PostResponse('{"result": true}'))
+    def test_id(self, mock_post):
+        prev_id = None
+        for i in range(20):
+            jsonrpc_call(url='', timeout=30, call_desc={'method': 'method'})
+            rpcdata = mock_post.call_args[1]['json']
+            self.assertTrue(isinstance(rpcdata['id'], str))
+            self.assertTrue(len(rpcdata['id']) > 0)
+            self.assertNotEqual(rpcdata['id'], prev_id)
+            prev_id = rpcdata['id']
+
+
 class TestJsonRPCMethod_call(unittest.TestCase):
 
-    def setUp(self):
-        self.os_name = os.name
-        os.name = "darwin"
-        self.url = "http://localhost/jsonrpc"
-        self.timeout = 20
-        self.method_name = "ping"
-        self.id = "fGasV62G"
-        self.method = JsonRPCMethod(self.url, self.method_name, self.timeout)
-        self.method.id = MagicMock()
-        self.method.id.return_value = self.id
-
-    def tearDown(self):
-        os.name = self.os_name
+    def jsonrpc_call(self, *args, **kwargs):
+        return jsonrpc_call(
+            url='http://localhost/jsonrpc',
+            timeout=30, call_desc={'method': 'ping', 'args': args or kwargs})
 
     @patch('requests.post')
     def test_normal_call(self, mock_post):
         mock_post.return_value = PostResponse(
             '{"result": "pong", "error": null, "id": "DKNCJDLDJJ"}')
-        self.assertEqual("pong", self.method())
-        self.method.id.assert_called_once_with()
+        self.assertEqual("pong", self.jsonrpc_call())
 
         mock_post.return_value = PostResponse(
             '{"result": "pong", "id": "JDLSFJLILJEMNC"}')
-        self.assertEqual("pong", self.method())
-        self.assertEqual("pong", self.method(1, 2, "str", {"a": 1}, ["1"]))
-        self.assertEqual("pong", self.method(a=1, b=2))
+        self.assertEqual("pong", self.jsonrpc_call())
+        self.assertEqual("pong", self.jsonrpc_call(1, 2, "str", {"a": 1}, ["1"]))
+        self.assertEqual("pong", self.jsonrpc_call(a=1, b=2))
 
     @patch('requests.post')
     def test_normal_call_error(self, mock_post):
         mock_post.side_effect = requests.exceptions.ConnectionError('error')
         with self.assertRaises(Exception):
-            self.method()
+            self.jsonrpc_call()
 
         mock_post.return_value = PostResponse(
             '{"result": "pong", "error": {"code": -513937, "message": "error message."}, '
             '"id": "fGasV62G"}')
         with self.assertRaises(Exception):
-            self.method()
-
-        mock_post.return_value = PostResponse('{"result": null, "error": null, "id": "fGasV62G"}')
-        with self.assertRaises(SyntaxError):
-            self.method(1, 2, kwarg1="")
+            self.mejsonrpc_callhod()
 
 
 class TestJsonRPCClient(unittest.TestCase):
 
-    def setUp(self):
-        self.url = "http://localhost/jsonrpc"
-        self.timeout = 20
+    def jsonrpc_call(self, method, *args, **kwargs):
+        return jsonrpc_call(
+            url='http://localhost/jsonrpc',
+            timeout=30, call_desc={'method': method, 'args': args or kwargs})
 
-    def test_jsonrpc(self):
-        with patch('uiautomatorminus.JsonRPCMethod') as JsonRPCMethod:
-            client = JsonRPCClient(self.url, self.timeout, JsonRPCMethod)
-            JsonRPCMethod.return_value = "Ok"
-            self.assertEqual(client.ping, "Ok")
-            JsonRPCMethod.assert_called_once_with(self.url, "ping", timeout=self.timeout)
+    @patch('requests.post')
+    def test_jsonrpc(self, mock_post):
+        mock_post.return_value = PostResponse(
+            '{"result": "pong", "id": "JDLSFJLILJEMNC"}')
+        client = JsonRPCClient(self.jsonrpc_call)
+        self.assertEqual(client.ping(), 'pong')
 
-            JsonRPCMethod.return_value = {"width": 10, "height": 20}
-            self.assertEqual(client.info, {"width": 10, "height": 20})
-            JsonRPCMethod.assert_called_with(self.url, "info", timeout=self.timeout)
+        mock_post.return_value = PostResponse(
+            '{"result": {"width": 10, "height": 20}, "id": "JDLSFJLILJEMNC"}')
+        self.assertEqual(client.info(), {"width": 10, "height": 20})

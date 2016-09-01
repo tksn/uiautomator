@@ -8,6 +8,13 @@ from uiautomatorminus import AutomatorServer, JsonRPCError
 import requests
 
 
+class PostResponse(object):
+    def __init__(self, text):
+        self.text = text
+    def json(self):
+        return json.loads(self.text)
+
+
 class TestAutomatorServer(unittest.TestCase):
 
     def setUp(self):
@@ -77,43 +84,29 @@ class TestAutomatorServer(unittest.TestCase):
                 server.start()
 
     def test_auto_start(self):
-        with patch("uiautomatorminus.JsonRPCMethod") as JsonRPCMethod:
-            returns = [requests.exceptions.ConnectionError("error"), "ok"]
-            def side_effect():
-                result = returns.pop(0)
-                if isinstance(result, Exception):
-                    raise result
-                return result
-            JsonRPCMethod.return_value.side_effect = side_effect
+        with patch("uiautomatorminus.jsonrpc_call") as jsonrpc_call:
+            jsonrpc_call.side_effect = [
+                requests.exceptions.ConnectionError('error'), 'ok']
             server = AutomatorServer()
-            server.start = MagicMock()
-            server.stop = MagicMock()
-            self.assertEqual("ok", server.jsonrpc.any_method())
-            server.start.assert_called_once_with(timeout=30)
-        with patch("uiautomatorminus.JsonRPCMethod") as JsonRPCMethod:
-            returns = [JsonRPCError(-32000-1, "error msg"), "ok"]
-            def side_effect():
-                result = returns.pop(0)
-                if isinstance(result, Exception):
-                    raise result
-                return result
-            JsonRPCMethod.return_value.side_effect = side_effect
+            server.restart = MagicMock()
+            self.assertEqual("ok", server.jsonrpc().any_method())
+            assert server.restart.called
+        with patch("uiautomatorminus.jsonrpc_call") as jsonrpc_call:
+            jsonrpc_call.side_effect = [JsonRPCError(-32000-1, "error msg"), "ok"]
             server = AutomatorServer()
-            server.start = MagicMock()
-            server.stop = MagicMock()
-            self.assertEqual("ok", server.jsonrpc.any_method())
-            server.start.assert_called_once_with()
-        with patch("uiautomatorminus.JsonRPCMethod") as JsonRPCMethod:
-            JsonRPCMethod.return_value.side_effect = JsonRPCError(-32000-2, "error msg")
+            server.restart = MagicMock()
+            self.assertEqual("ok", server.jsonrpc().any_method())
+            server.restart.assert_called_once_with()
+        with patch("uiautomatorminus.jsonrpc_call") as jsonrpc_call:
+            jsonrpc_call.side_effect = JsonRPCError(-32000-2, "error msg")
             server = AutomatorServer()
-            server.start = MagicMock()
-            server.stop = MagicMock()
+            server.restart = MagicMock()
             with self.assertRaises(JsonRPCError):
-                server.jsonrpc.any_method()
+                server.jsonrpc().any_method()
 
     def test_start_ping(self):
-        with patch("uiautomatorminus.JsonRPCClient") as JsonRPCClient:
-            JsonRPCClient.return_value.ping.return_value = "pong"
+        with patch("uiautomatorminus.jsonrpc_call") as jsonrpc_call:
+            jsonrpc_call.return_value = "pong"
             server = AutomatorServer()
             server.adb = MagicMock()
             server.adb.forward.return_value = 0
@@ -152,18 +145,13 @@ class TestAutomatorServer_Stop(unittest.TestCase):
 
     @patch('requests.post')
     def test_stop_started_server(self, mock_post):
-        class PostResponse(object):
-            def __init__(self, text):
-                self.text = text
-            def json(self):
-                return json.loads(self.text)
         mock_post.return_value = PostResponse('{"result": null}')
         server = AutomatorServer()
         server.adb = MagicMock()
         server.uiautomator_process = process = MagicMock()
         process.poll.return_value = None
         server.stop()
-        process.wait.assert_called_once_with()
+        self.assertTrue(process.communicate.called)
 
         server.uiautomator_process = process = MagicMock()
         process.poll.return_value = None        
@@ -171,20 +159,22 @@ class TestAutomatorServer_Stop(unittest.TestCase):
         server.stop()
         process.kill.assert_called_once_with()
 
-    def test_stop(self):
-        results = [
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\n\rsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus",
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\r\nsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus",
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\nsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus",
-            b"USER     PID   PPID  VSIZE  RSS     WCHAN    PC         NAME\rsystem    372   126   635596 104808 ffffffff 00000000 S uiautomatorminus"
-        ]
-        for r in results:
-            server = AutomatorServer()
-            server.adb = MagicMock()
-            server.adb.cmd.return_value.communicate.return_value = (r, "")
-            server.stop()
-            self.assertEqual(server.adb.cmd.call_args_list,
-                             [call("shell", "ps", "-C", "uiautomator"), call("shell", "kill", "-9", "372")])
+    @patch('requests.post', return_value=PostResponse('{"result": "pong"}'))
+    def test_restart_server(self, mock_post):
+        server = AutomatorServer()
+        server.adb = MagicMock()
+        server.restart()
+
+        def get_index(kw):
+            for i, args in enumerate(server.adb.cmd.call_args_list):
+                if kw in args[0]:
+                    return i
+            return -1
+
+        istop = get_index('force-stop')
+        istart = get_index('instrument')
+        self.assertTrue(istop >= 0 and istart >= 0)
+        self.assertTrue(istop < istart)
 
 
 class TestJsonRPCError(unittest.TestCase):
