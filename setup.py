@@ -7,7 +7,8 @@ except ImportError:
 
 
 requires = [
-    'requests>=2.11.1'
+    'requests>=2.11.1',
+    #'tksn.adb==0.1.0.dev2'
 ]
 test_requires = [
     'nose>=1.0',
@@ -39,6 +40,9 @@ setup(
             'uiautomatorminus/libs/uiautomatorminus.apk'
         ]
     },
+    dependency_links=[
+        'https://bitbucket.org/tksn/tksn.adb/get/master.zip#egg=tksn.adb-0.1.0.dev2'
+    ],
     include_package_data=True,
     license='MIT',
     platforms='any',
