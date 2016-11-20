@@ -89,14 +89,16 @@ class JsonRPCError(Exception):
         return "JsonRPC Error code: %d, Message: %s" % (self.code, self.message)
 
 
-def jsonrpc_call(url, timeout, call_desc):
+def jsonrpc_call(url, timeout, call_desc, session=None):
     rpc_id = str(uuid.uuid4())
     data = {
         'jsonrpc': '2.0', 'method': call_desc['method'], 'id': rpc_id,
         'params': call_desc.get('args', [])}
 
     logging.debug('POST:{}'.format(json.dumps(data)))
-    jsonresult = requests.post(url, json=data, timeout=timeout).json()
+    req = session or requests
+    jsonresult = req.post(url, json=data, timeout=timeout).json()
+
     logging.debug('  -> {}'.format(json.dumps(jsonresult)))
 
     error = jsonresult.get('error')
@@ -377,6 +379,7 @@ class AutomatorServer(object):
 
     def __init__(self, serial=None, local_port=None, device_port=None, adb_server_host=None, adb_server_port=None):
         self.uiautomator_process = None
+        self.session = None
         self.adb = Adb(serial=serial, adb_server_host=adb_server_host, adb_server_port=adb_server_port)
         self.device_port = int(device_port) if device_port else DEVICE_PORT
         if local_port:
@@ -396,7 +399,9 @@ class AutomatorServer(object):
         def call(method, *args, **kwargs):
             call_desc = {
                 'method': method, 'args': args or kwargs}
-            return jsonrpc_call(self.rpc_uri, timeout, call_desc)
+            if self.session is None:
+                self.session = requests.Session()
+            return jsonrpc_call(self.rpc_uri, timeout, call_desc, self.session)
         wrapped_call = add_recovery(
             add_fnf_handling(call, self.handlers), self.restart)
         return JsonRPCClient(wrapped_call)
@@ -413,7 +418,7 @@ class AutomatorServer(object):
     def install(self):
         base_dir = os.path.dirname(__file__)
         for apk in self.__apk_files:
-            self.adb.cmd("install", "-rt", os.path.join(base_dir, apk)).wait()
+            self.adb.cmd("install", "-r", "-t", os.path.join(base_dir, apk)).wait()
 
     def set_forwarding(self):
         self.adb.forward(self.local_port, self.device_port)
@@ -425,6 +430,7 @@ class AutomatorServer(object):
         cmd.extend(instrument_opts)
         cmd.append('/'.join((TESTPACKAGE, TESTRUNNER)))
         self.uiautomator_process = self.adb.cmd(*cmd)
+        self.session = None
 
     def force_stop(self, package):
         cmd = ['shell', 'am', 'force-stop', package]
