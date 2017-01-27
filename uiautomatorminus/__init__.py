@@ -3,6 +3,7 @@
 
 """Python wrapper for Android uiautomator tool."""
 
+import base64
 import collections
 import json
 import logging
@@ -16,16 +17,17 @@ import uuid
 import xml.dom.minidom
 import requests
 
-MAINPACKAGE = 'org.bitbucket.tksn.androidtestsupportapp'
-TESTPACKAGE = 'org.bitbucket.tksn.androidtestsupportapp.test'
+MAINPACKAGE = 'org.bitbucket.tksn.testsupportapp2'
+TESTPACKAGE = 'org.bitbucket.tksn.testsupportapp2.test'
 TESTRUNNER = 'android.support.test.runner.AndroidJUnitRunner'
 INSTRUMENT_EXTRA_OPTS = [
-    '-e', 'class', 'org.bitbucket.tksn.androidtestsupportapp.TestSupportMain'
+    '-e', 'class', 'org.bitbucket.tksn.testsupportapp2.TestSupportMain',
+    '-e', 'hideWindow', 'true'
 ]
 DEVICE_PORT = int(os.environ.get('UIAUTOMATOR_DEVICE_PORT', '9008'))
 LOCAL_PORT = int(os.environ.get('UIAUTOMATOR_LOCAL_PORT', '9008'))
 
-JSONRPC_TIMEOUT = int(os.environ.get('JSONRPC_TIMEOUT', 10))
+JSONRPC_TIMEOUT = int(os.environ.get('JSONRPC_TIMEOUT', 20))
 RESTART_TIMEOUT_AFTER_INSTRUMENT_RESET = 7
 RESTART_TIMEOUT_AFTER_REINSTALL = 23
 STOP_TIMEOUT = 5
@@ -34,7 +36,7 @@ STOP_TIMEOUT = 5
 if 'localhost' not in os.environ.get('no_proxy', ''):
     os.environ['no_proxy'] = "localhost,%s" % os.environ.get('no_proxy', '')
 
-__all__ = ["device", "Device", "rect", "point", "Selector", "JsonRPCError"]
+__all__ = ["Device", "rect", "point", "Selector", "JsonRPCError"]
 
 
 def U(x):
@@ -371,13 +373,17 @@ class AutomatorServer(object):
 
     """start and quit rpc server on device.
     """
-    __apk_files = ["libs/uiautomatorminus.apk", "libs/uiautomatorminus_test.apk"]
+    __apk_dir = 'libs'
+    __apk_files = ['app-debug.apk', 'app-debug-androidTest.apk']
 
     __sdk = 0
 
     handlers = NotFoundHandler()  # handler UI Not Found exception
 
-    def __init__(self, serial=None, local_port=None, device_port=None, adb_server_host=None, adb_server_port=None):
+    def __init__(self,
+            serial=None, local_port=None, device_port=None,
+            adb_server_host=None, adb_server_port=None,
+            auto_restart=True):
         self.uiautomator_process = None
         self.session = None
         self.adb = Adb(serial=serial, adb_server_host=adb_server_host, adb_server_port=adb_server_port)
@@ -394,14 +400,16 @@ class AutomatorServer(object):
                     self.local_port = next_local_port(adb_server_host)
             except:
                 self.local_port = next_local_port(adb_server_host)
+        self.auto_restart = auto_restart
 
-    def jsonrpc(self, timeout=JSONRPC_TIMEOUT):
+    def jsonrpc(self, timeout=None):
+        to = timeout or JSONRPC_TIMEOUT
         def call(method, *args, **kwargs):
             call_desc = {
                 'method': method, 'args': args or kwargs}
             if self.session is None:
                 self.session = requests.Session()
-            return jsonrpc_call(self.rpc_uri, timeout, call_desc, self.session)
+            return jsonrpc_call(self.rpc_uri, to, call_desc, self.session)
         wrapped_call = add_recovery(
             add_fnf_handling(call, self.handlers), self.restart)
         return JsonRPCClient(wrapped_call)
@@ -418,7 +426,9 @@ class AutomatorServer(object):
     def install(self):
         base_dir = os.path.dirname(__file__)
         for apk in self.__apk_files:
-            self.adb.cmd("install", "-r", "-t", os.path.join(base_dir, apk)).wait()
+            dirpath = os.path.join(base_dir, self.__apk_dir)
+            apkpath = os.path.join(dirpath, apk)
+            self.adb.cmd("install", "-r", "-t", apkpath).communicate()
 
     def set_forwarding(self):
         self.adb.forward(self.local_port, self.device_port)
@@ -456,9 +466,14 @@ class AutomatorServer(object):
             time.sleep(0.1)
         if not self.alive:
             self.uiautomator_process.kill()
-            out, err = self.uiautomator_process.communicate()
-            logging.debug('Instrument stdout/stderr=[{}/{}]'.format(out, err))
-            raise IOError("RPC server not started!")
+            try:
+                out, err = self.uiautomator_process.communicate(timeout=10)
+                logging.debug('Instrument stdout/stderr=[{}/{}]'.format(out, err))
+                raise IOError("RPC server not started!")
+            except subprocess.TimeoutExpired:
+                self.uiautomator_process.kill()
+                raise IOError("RPC server not started! (communicate)")
+
 
     def start(self, timeout=JSONRPC_TIMEOUT):
         self.install()
@@ -468,6 +483,9 @@ class AutomatorServer(object):
 
     def restart(self):
         self.set_forwarding()
+        if not self.auto_restart:
+            return
+
         self.stop_instrumentation()
         self.start_instrumentation()
 
@@ -527,13 +545,30 @@ class AutomatorDevice(object):
         "height": "displayHeight"
     }
 
-    def __init__(self, serial=None, local_port=None, adb_server_host=None, adb_server_port=None):
-        self.server = AutomatorServer(
-            serial=serial,
-            local_port=local_port,
-            adb_server_host=adb_server_host,
-            adb_server_port=adb_server_port
-        )
+    def __init__(self,
+            serial=None, local_port=None, device_port=None,
+            adb_server_host=None, adb_server_port=None,
+            auto_restart_server=True,
+            jsonrpc_timeout=None, server=None):
+        if server is not None:
+            self.server = server
+        else:
+            self.server = AutomatorServer(
+                serial=serial,
+                local_port=local_port,
+                device_port=device_port,
+                adb_server_host=adb_server_host,
+                adb_server_port=adb_server_port,
+                auto_restart=auto_restart_server
+            )
+        self.jsonrpc_timeout = jsonrpc_timeout
+
+    def jsonrpc(self, timeout=None):
+        timeout = timeout or self.jsonrpc_timeout
+        return self.server.jsonrpc(timeout=timeout)
+
+    def timeout(self, timeout):
+        return AutomatorDevice(server=self.server, jsonrpc_timeout=timeout)
 
     def __call__(self, **kwargs):
         return AutomatorDeviceObject(self, Selector(**kwargs))
@@ -551,33 +586,33 @@ class AutomatorDevice(object):
     @property
     def info(self):
         '''Get the device info.'''
-        return self.server.jsonrpc().deviceInfo()
+        return self.jsonrpc().deviceInfo()
 
     def click(self, x, y):
         '''click at arbitrary coordinates.'''
-        return self.server.jsonrpc().click(x, y)
+        return self.jsonrpc().click(x, y)
 
     def long_click(self, x, y):
         '''long click at arbitrary coordinates.'''
         return self.swipe(x, y, x + 1, y + 1)
 
     def swipe(self, sx, sy, ex, ey, steps=100):
-        return self.server.jsonrpc().swipe(sx, sy, ex, ey, steps)
+        return self.jsonrpc().swipe(sx, sy, ex, ey, steps)
 
     def swipePoints(self, points, steps=100):
         ppoints = []
         for p in points:
             ppoints.append(p[0])
             ppoints.append(p[1])
-        return self.server.jsonrpc().swipePoints(ppoints, steps)
+        return self.jsonrpc().swipePoints(ppoints, steps)
 
     def drag(self, sx, sy, ex, ey, steps=100):
         '''Swipe from one point to another point.'''
-        return self.server.jsonrpc().drag(sx, sy, ex, ey, steps)
+        return self.jsonrpc().drag(sx, sy, ex, ey, steps)
 
     def dump(self, filename=None, compressed=True, pretty=True):
         '''dump device window and pull to local file.'''
-        content = self.server.jsonrpc().dumpWindowHierarchy(compressed, None)
+        content = self.jsonrpc().dumpWindowHierarchy(compressed, None)
         if filename:
             with open(filename, "wb") as f:
                 f.write(content.encode("utf-8"))
@@ -592,7 +627,7 @@ class AutomatorDevice(object):
         if result:
             return result
 
-        device_file = self.server.jsonrpc().takeScreenshot("screenshot.png",
+        device_file = self.jsonrpc().takeScreenshot("screenshot.png",
                                                          scale, quality)
         if not device_file:
             return None
@@ -603,7 +638,7 @@ class AutomatorDevice(object):
 
     def freeze_rotation(self, freeze=True):
         '''freeze or unfreeze the device rotation in current status.'''
-        self.server.jsonrpc().freezeRotation(freeze)
+        self.jsonrpc().freezeRotation(freeze)
 
     @property
     def orientation(self):
@@ -622,7 +657,7 @@ class AutomatorDevice(object):
         for values in self.__orientation:
             if value in values:
                 # can not set upside-down until api level 18.
-                self.server.jsonrpc().setOrientation(values[1])
+                self.jsonrpc().setOrientation(values[1])
                 break
         else:
             raise ValueError("Invalid orientation.")
@@ -630,11 +665,11 @@ class AutomatorDevice(object):
     @property
     def last_traversed_text(self):
         '''get last traversed text. used in webview for highlighted text.'''
-        return self.server.jsonrpc().getLastTraversedText()
+        return self.jsonrpc().getLastTraversedText()
 
     def clear_traversed_text(self):
         '''clear the last traversed text.'''
-        self.server.jsonrpc().clearLastTraversedText()
+        self.jsonrpc().clearLastTraversedText()
 
     @property
     def open(self):
@@ -647,9 +682,9 @@ class AutomatorDevice(object):
         @param_to_property(action=["notification", "quick_settings"])
         def _open(action):
             if action == "notification":
-                return self.server.jsonrpc().openNotification()
+                return self.jsonrpc().openNotification()
             else:
-                return self.server.jsonrpc().openQuickSettings()
+                return self.jsonrpc().openQuickSettings()
         return _open
 
     @property
@@ -677,26 +712,26 @@ class AutomatorDevice(object):
         class Watchers(list):
 
             def __init__(self):
-                for watcher in obj.server.jsonrpc().getWatchers():
+                for watcher in obj.jsonrpc().getWatchers():
                     self.append(watcher)
 
             @property
             def triggered(self):
-                return obj.server.jsonrpc().hasAnyWatcherTriggered()
+                return obj.jsonrpc().hasAnyWatcherTriggered()
 
             def remove(self, name=None):
                 if name:
-                    obj.server.jsonrpc().removeWatcher(name)
+                    obj.jsonrpc().removeWatcher(name)
                 else:
                     for name in self:
-                        obj.server.jsonrpc().removeWatcher(name)
+                        obj.jsonrpc().removeWatcher(name)
 
             def reset(self):
-                obj.server.jsonrpc().resetWatcherTriggers()
+                obj.jsonrpc().resetWatcherTriggers()
                 return self
 
             def run(self):
-                obj.server.jsonrpc().runWatchers()
+                obj.jsonrpc().runWatchers()
                 return self
         return Watchers()
 
@@ -710,17 +745,17 @@ class AutomatorDevice(object):
 
             @property
             def triggered(self):
-                return obj.server.jsonrpc().hasWatcherTriggered(name)
+                return obj.jsonrpc().hasWatcherTriggered(name)
 
             def remove(self):
-                obj.server.jsonrpc().removeWatcher(name)
+                obj.jsonrpc().removeWatcher(name)
 
             def when(self, **kwargs):
                 self.__selectors.append(Selector(**kwargs))
                 return self
 
             def click(self, **kwargs):
-                obj.server.jsonrpc().registerClickUiObjectWatcher(name, self.__selectors, Selector(**kwargs))
+                obj.jsonrpc().registerClickUiObjectWatcher(name, self.__selectors, Selector(**kwargs))
 
             @property
             def press(self):
@@ -729,7 +764,7 @@ class AutomatorDevice(object):
                     "search", "enter", "delete", "del", "recent", "volume_up",
                     "menu", "volume_down", "volume_mute", "camera", "power")
                 def _press(*args):
-                    obj.server.jsonrpc().registerPressKeyskWatcher(name, self.__selectors, args)
+                    obj.jsonrpc().registerPressKeyskWatcher(name, self.__selectors, args)
                 return _press
         return Watcher()
 
@@ -752,18 +787,18 @@ class AutomatorDevice(object):
         )
         def _press(key, meta=None):
             if isinstance(key, int):
-                return self.server.jsonrpc().pressKeyCode(key, meta) if meta else self.server.jsonrpc().pressKeyCode(key)
+                return self.jsonrpc().pressKeyCode(key, meta) if meta else self.jsonrpc().pressKeyCode(key)
             else:
-                return self.server.jsonrpc().pressKey(str(key))
+                return self.jsonrpc().pressKey(str(key))
         return _press
 
     def wakeup(self):
         '''turn on screen in case of screen off.'''
-        self.server.jsonrpc().wakeUp()
+        self.jsonrpc().wakeUp()
 
     def sleep(self):
         '''turn off screen in case of screen on.'''
-        self.server.jsonrpc().sleep()
+        self.jsonrpc().sleep()
 
     @property
     def screen(self):
@@ -820,14 +855,43 @@ class AutomatorDevice(object):
         def _wait(action, timeout=1000, package_name=None):
             http_timeout = timeout / 1000 + JSONRPC_TIMEOUT
             if action == "idle":
-                return self.server.jsonrpc(timeout=http_timeout).waitForIdle(timeout)
+                return self.jsonrpc(timeout=http_timeout).waitForIdle(timeout)
             elif action == "update":
-                return self.server.jsonrpc(timeout=http_timeout).waitForWindowUpdate(package_name, timeout)
+                return self.jsonrpc(timeout=http_timeout).waitForWindowUpdate(package_name, timeout)
         return _wait
 
     def exists(self, **kwargs):
         '''Check if the specified ui object by kwargs exists.'''
         return self(**kwargs).exists
+
+    def remote_exec(self, text, timeout=60000):
+        token = self.jsonrpc().runScript(text)
+        start_time = time.time()
+        timeout_sec = timeout / 1000
+        while time.time() - start_time < timeout_sec:
+            result = self.jsonrpc().getScriptResult(token)
+            if result is not None:
+                if result.get('resultCode') == 0:
+                    return result['stdOutString']
+                else:
+                    raise RuntimeError(
+                        'Remote script execution failed: code={resultCode}, message={stdErrString}'.format(**result))
+            time.sleep(1.0)
+        raise RuntimeError('Remote script execution timeout')
+
+    def remote_exec_apk(self, apk_path, class_name, args_dict, timeout=60000):
+        with open(apk_path, 'rb') as f:
+            apk_data = base64.b64encode(f.read()).decode('ascii')
+        token = self.jsonrpc().runApk(apk_data, class_name, args_dict)
+        start_time = time.time()
+        timeout_sec = timeout / 1000
+        while time.time() - start_time < timeout_sec:
+            result = self.jsonrpc().getRunApkResult(token)
+            if result is not None:
+                return result
+            time.sleep(1.0)
+        raise RuntimeError('Remote script execution timeout')
+
 
 Device = AutomatorDevice
 
@@ -844,7 +908,7 @@ class AutomatorDeviceUiObject(object):
         self.selector = selector
 
     def jsonrpc(self):
-        return self.device.server.jsonrpc()
+        return self.device.jsonrpc()
 
     @property
     def exists(self):
@@ -1006,10 +1070,10 @@ class AutomatorDeviceUiObject(object):
         def _wait(action, timeout=3000):
             http_timeout = timeout / 1000 + JSONRPC_TIMEOUT
             if action == "gone":
-                return self.device.server.jsonrpc(
+                return self.device.jsonrpc(
                     timeout=http_timeout).waitUntilGone(self.selector, timeout)
             else:
-                return self.device.server.jsonrpc(
+                return self.device.jsonrpc(
                     timeout=http_timeout).waitForExists(self.selector, timeout)
         return _wait
 
